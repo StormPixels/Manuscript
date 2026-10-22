@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Manuskrip</title>
+<style>
+:root{--ln:#a2a9b1;--lk:#0645ad;--bg2:#f8f9fa}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.65 -apple-system,Roboto,"Segoe UI",sans-serif;color:#202122;background:#fff}
+header{display:flex;align-items:center;gap:6px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;border-bottom:1px solid var(--ln);background:var(--bg2);position:sticky;top:0;z-index:5}
+.logo{flex:1;font:24px Georgia,"Linux Libertine",serif;cursor:pointer;line-height:1.1}
+.logo small{display:block;font:11px sans-serif;color:#54595d}
+button{font:inherit;cursor:pointer}
+header button{width:40px;height:40px;border:1px solid var(--ln);background:#fff;border-radius:2px;font-size:20px}
+main{max-width:820px;margin:auto;padding:8px 16px 90px}
+h1,h2,h3,h4{font-family:Georgia,"Linux Libertine",serif;line-height:1.3}
+h1{font-size:1.8em;font-weight:400;margin:.4em 0;border-bottom:1px solid var(--ln)}
+h2{font-size:1.5em;font-weight:400;margin:1em 0 .5em;border-bottom:1px solid var(--ln)}
+h3{font-size:1.2em;margin:1em 0 .3em}
+a{color:var(--lk);text-decoration:none}a.new{color:#ba0000}
+.titlebar{display:flex;align-items:flex-end;gap:8px}.titlebar h1{flex:1}
+.pen{width:40px;height:40px;margin-bottom:6px;border:1px solid var(--ln);border-radius:50%;background:var(--bg2);font-size:20px;color:#36c}
+.search,#tt{width:100%;padding:10px;border:1px solid var(--ln);border-radius:2px;font:inherit;margin:8px 0}
+.idx{list-style:none;padding:0}.idx li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #eaecf0}
+.idx small,.muted{color:#72777d}
+.content p{margin:.6em 0}
+.wikitable{border-collapse:collapse;background:var(--bg2);border:1px solid var(--ln);display:block;overflow-x:auto;margin:1em 0;max-width:100%}
+.wikitable th,.wikitable td{border:1px solid var(--ln);padding:.3em .6em}
+.wikitable th{background:#eaecf0;text-align:center}
+.wikitable caption{font-weight:700;padding:.3em;text-align:left}
+.thumb{display:block;max-width:420px;margin:12px auto;border:1px solid #c8ccd1;background:var(--bg2);padding:4px;font-size:.88em}
+.thumb img{width:100%;display:block}
+.tb{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+.tb button,.act button{padding:8px 12px;border:1px solid var(--ln);background:var(--bg2);border-radius:2px}
+#ta{width:100%;min-height:50vh;padding:10px;border:1px solid var(--ln);border-radius:2px;font:15px/1.5 ui-monospace,Menlo,monospace;resize:vertical}
+.act{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.act #sv{background:#36c;border-color:#36c;color:#fff}
+.act .danger{color:#d33;margin-left:auto}
+.hide{display:none}
+#pv{border:1px dashed var(--ln);padding:0 12px;margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" id="lg">Manuskrip<small>Ensiklopedia pribadi</small></div>
+  <button id="add" aria-label="Halaman baru">+</button>
+</header>
+<main id="app"></main>
+<input type="file" id="fi" accept="image/*" class="hide">
+<script>
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/* ---------- Penyimpanan (IndexedDB) ---------- */
+const db=new Promise((ok,no)=>{const r=indexedDB.open('manuskrip',1);
+  r.onupgradeneeded=()=>{r.result.createObjectStore('notes',{keyPath:'id'});r.result.createObjectStore('imgs',{keyPath:'id'})};
+  r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const tx=async(s,m,f)=>{const d=await db;return new Promise((ok,no)=>{const t=d.transaction(s,m),o=f(t.objectStore(s));t.oncomplete=()=>ok(o&&o.result);t.onerror=()=>no(t.error)})};
+const put=(s,v)=>tx(s,'readwrite',o=>o.put(v)),get=(s,k)=>tx(s,'readonly',o=>o.get(k)),
+      all=s=>tx(s,'readonly',o=>o.getAll()),del=(s,k)=>tx(s,'readwrite',o=>o.delete(k));
+let notes=[];
+const load=async()=>{notes=await all('notes')};
+const has=t=>notes.some(n=>n.title===t);
+
+/* ---------- Pengurai wikitext ---------- */
+function inl(s){
+  s=esc(s);
+  s=s.replace(/\[\[(?:Berkas|File):([^\]|]+)(?:\|([^\]]*))?\]\]/g,(m,id,c)=>`<span class="thumb"><img data-img="${id}" alt=""><span>${c||''}</span></span>`);
+  s=s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,t,l)=>`<a href="#" data-link="${t}" class="${has(t.replace(/&amp;/g,'&'))?'':'new'}">${l||t}</a>`);
+  s=s.replace(/\[(https?:\/\/[^\s\]]+)\s*([^\]]*)\]/g,(m,u,l)=>`<a href="${u}" target="_blank" rel="noopener">${l||u}</a>`);
+  return s.replace(/'''(.+?)'''/g,'<b>$1</b>').replace(/''(.+?)''/g,'<i>$1</i>');
+}
+function wiki(t){
+  const L=t.replace(/\r/g,'').split('\n');let h='',list=null,para=[],i=0,m;
+  const fp=()=>{if(para.length){h+='<p>'+inl(para.join(' '))+'</p>';para=[]}};
+  const fl=()=>{if(list){h+=`</${list}>`;list=null}};
+  while(i<L.length){
+    const l=L[i];
+    if(l.startsWith('{|')){
+      fp();fl();let cap='',rows=[],cur=null;
+      for(i++;i<L.length&&!L[i].startsWith('|}');i++){
+        const r=L[i];
+        if(r.startsWith('|+'))cap=r.slice(2).trim();
+        else if(r.startsWith('|-'))cur=null;
+        else if(r[0]==='!'||r[0]==='|'){
+          if(!cur){cur=[];rows.push(cur)}
+          const th=r[0]==='!';
+          r.slice(1).split(th?/!!|\|\|/:'||').forEach(c=>cur.push([th,c.trim()]));
+        }
+      }
+      h+='<table class="wikitable">'+(cap?`<caption>${inl(cap)}</caption>`:'')+rows.map(r=>'<tr>'+r.map(([th,c])=>`<${th?'th':'td'}>${inl(c)}</${th?'th':'td'}>`).join('')+'</tr>').join('')+'</table>';
+    }
+    else if(m=l.match(/^(={2,5})\s*(.+?)\s*\1\s*$/)){fp();fl();const n=m[1].length;h+=`<h${n}>${inl(m[2])}</h${n}>`}
+    else if(m=l.match(/^([*#])\s*(.*)$/)){fp();const tg=m[1]==='*'?'ul':'ol';if(list!==tg){fl();h+=`<${tg}>`;list=tg}h+='<li>'+inl(m[2])+'</li>'}
+    else if(!l.trim()){fp();fl()}
+    else{fl();para.push(l)}
+    i++;
+  }
+  fp();fl();return h;
+}
+const loadImgs=()=>document.querySelectorAll('img[data-img]').forEach(async im=>{const r=await get('imgs',im.dataset.img);if(r)im.src=r.data});
+
+/* ---------- Navigasi ---------- */
+function go(v,t,rep){const s={v,t};history[rep?'replaceState':'pushState'](s,'');show(s)}
+function show(s){s=s||{v:'home'};scrollTo(0,0);
+  if(s.v==='read'&&has(s.t))read(s.t);else if(s.v==='edit'&&has(s.t))edit(s.t,false);
+  else if(s.v==='new')edit(s.t||'',true);else home()}
+onpopstate=e=>show(e.state);
+
+/* ---------- Tampilan ---------- */
+function home(){
+  app.innerHTML='<input id="q" class="search" placeholder="Cari di Manuskrip"><h1>Halaman terbaru</h1><div id="lst"></div>';
+  const draw=()=>{const q=$('#q').value.toLowerCase();
+    const l=notes.filter(n=>(n.title+n.body).toLowerCase().includes(q)).sort((a,b)=>b.updated-a.updated);
+    $('#lst').innerHTML=l.length?'<ul class="idx">'+l.map(n=>`<li><a href="#" data-link="${esc(n.title)}">${esc(n.title)}</a><small>${new Date(n.updated).toLocaleDateString('id-ID')}</small></li>`).join('')+'</ul>'
+      :'<p class="muted">'+(notes.length?'Tidak ada halaman yang cocok.':'Belum ada halaman. Ketuk + untuk membuat halaman pertama.')+'</p>'};
+  $('#q').oninput=draw;draw();
+}
+function read(t){
+  const n=notes.find(x=>x.title===t);
+  app.innerHTML=`<div class="titlebar"><h1>${esc(n.title)}</h1><button class="pen" id="pen" aria-label="Sunting">✎</button></div><div class="content">${wiki(n.body)||'<p class="muted">Halaman ini masih kosong.</p>'}</div>`;
+  $('#pen').onclick=()=>go('edit',t);loadImgs();
+}
+const TABEL='{| class="wikitable"\n|+ Judul tabel\n! Kolom 1 !! Kolom 2\n|-\n| Isi 1 || Isi 2\n|-\n| Isi 3 || Isi 4\n|}';
+function edit(t,isNew){
+  const n=isNew?{title:t,body:''}:notes.find(x=>x.title===t);
+  app.innerHTML=`<h1>${isNew?'Membuat halaman baru':'Menyunting: '+esc(n.title)}</h1>
+  ${isNew?`<input id="tt" placeholder="Judul halaman" value="${esc(n.title)}">`:''}
+  <div class="tb"><button data-a="b"><b>B</b></button><button data-a="i"><i>I</i></button><button data-a="h">Judul bagian</button><button data-a="l">Daftar</button><button data-a="a">Tautan</button><button data-a="t">Tabel</button><button data-a="g">Gambar</button></div>
+  <textarea id="ta" placeholder="Tulis di sini. Gunakan == Judul bagian == untuk membuat bagian."></textarea>
+  <div id="pv" class="content hide"></div>
+  <div class="act"><button id="sv">Simpan halaman</button><button id="pvb">Pratinjau</button><button id="cn">Batal</button>${isNew?'':'<button id="dl" class="danger">Hapus</button>'}</div>`;
+  const ta=$('#ta');ta.value=n.body;
+  const ins=(a,b='',ph='')=>{const s=ta.selectionStart,e=ta.selectionEnd;ta.setRangeText(a+(ta.value.slice(s,e)||ph)+b,s,e,'end');ta.focus()};
+  const T={b:()=>ins("'''","'''",'teks tebal'),i:()=>ins("''","''",'teks miring'),h:()=>ins('\n== ',' ==\n','Judul bagian'),
+    l:()=>ins('\n* ','','item'),a:()=>ins('[[',']]','Judul halaman'),t:()=>ins('\n'+TABEL+'\n'),g:()=>$('#fi').click()};
+  document.querySelectorAll('.tb button').forEach(b=>b.onclick=T[b.dataset.a]);
+  $('#fi').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+    const id='g'+Date.now().toString(36);await put('imgs',{id,data:await shrink(f)});ins(`\n[[Berkas:${id}|`,']]\n','Keterangan gambar')};
+  $('#pvb').onclick=()=>{const p=$('#pv');p.classList.toggle('hide');if(!p.classList.contains('hide')){p.innerHTML=wiki(ta.value);loadImgs()}};
+  $('#cn').onclick=()=>history.back();
+  $('#sv').onclick=async()=>{
+    const title=(isNew?$('#tt').value:n.title).trim();
+    if(!title)return alert('Isi judul halaman terlebih dahulu.');
+    if(isNew&&has(title))return alert('Judul "'+title+'" sudah dipakai. Pilih judul lain.');
+    await put('notes',{id:title,title,body:ta.value,updated:Date.now()});await load();
+    if(isNew)go('read',title,true);else history.back();
+  };
+  if(!isNew)$('#dl').onclick=async()=>{if(confirm('Hapus halaman "'+n.title+'"?')){await del('notes',n.title);await load();history.go(-2)}};
+}
+function shrink(f){return new Promise(ok=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{
+  const k=Math.min(1,1000/Math.max(im.width,im.height)),c=document.createElement('canvas');
+  c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.82))};im.src=r.result};r.readAsDataURL(f)})}
+
+/* ---------- Awal ---------- */
+app.addEventListener('click',e=>{const a=e.target.closest('a[data-link]');if(!a)return;e.preventDefault();
+  const t=a.dataset.link;has(t)?go('read',t):go('new',t)});
+$('#lg').onclick=()=>go('home');$('#add').onclick=()=>go('new','');
+load().then(()=>{history.replaceState({v:'home'},'');home()});
+</script>
+</body>
+</html>
