@@ -130,6 +130,7 @@ html,body{background:#202328;color:var(--text)}
 
 /* folder & menu tambah */
 .ci.sq{border-radius:14px;background:#3a4049}
+.ci.file{background:#3a4049}
 .sheet button:disabled{opacity:.45}
 #hd .logo{flex:1}
 .ci{position:relative}
@@ -174,7 +175,7 @@ const byKey=k=>notes.find(n=>keyOf(n)===k);
 const resolveLink=(t,ctx)=>notes.find(n=>(n.path||'')===ctx&&n.title===t)||notes.find(n=>n.title===t);
 const parentOf=f=>f.includes('/')?f.slice(0,f.lastIndexOf('/')):'';
 const fname=t=>t.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').trim().slice(0,80)||'Tanpa judul';
-const uniqueFile=(t,p)=>{const b=fname(t);let f=b+'.json',k=2;while(notes.some(x=>(x.path||'')===p&&(x.file||'').toLowerCase()===f.toLowerCase()))f=b+' ('+(k++)+').json';return f};
+const uniqueFile=(t,p,skip)=>{const b=fname(t);let f=b+'.json',k=2;while(notes.some(x=>x!==skip&&(x.path||'')===p&&(x.file||'').toLowerCase()===f.toLowerCase()))f=b+' ('+(k++)+').json';return f};
 const fsPath=(p,f)=>FOLDER+(p?'/'+p:'')+(f?'/'+f:'');
 async function load(){
   if(!FS){
@@ -260,9 +261,8 @@ function goBack(){
 $('#bk').onclick=goBack;
 
 /* ---------- Beranda & folder ---------- */
-const COL=['#5f6368','#c5221f','#188038','#1a73e8','#9334e6','#e37400','#d01884','#007b83'];
-const col=t=>COL[[...t].reduce((a,c)=>a+c.charCodeAt(0),0)%COL.length];
 const LOGO='<svg width="68" height="68" viewBox="0 0 64 64" aria-hidden="true"><rect x="12" y="6" width="40" height="52" rx="4" fill="#fff" stroke="#36c" stroke-width="3"/><path d="M40 6v12h12" fill="none" stroke="#36c" stroke-width="3" stroke-linejoin="round"/><path d="M20 28h24M20 36h24M20 44h14" stroke="#36c" stroke-width="3" stroke-linecap="round"/></svg><div class="wm">Manuscript</div>';
+const PICON='<svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#e8eaed"/><path d="M14 2l6 6h-4a2 2 0 0 1-2-2z" fill="#aab0b9"/><path d="M8 13h8M8 17h6" stroke="#5f6672" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const FICON='<svg width="30" height="30" viewBox="0 0 24 24" fill="#f6c453" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 function home(p){
   p=p||'';if(p&&!folders.includes(p))p='';
@@ -278,7 +278,7 @@ function home(p){
     const nl=(q?notes.filter(n=>inP(n.path||'')&&(n.title+' '+(n.plain||'')).toLowerCase().includes(q)):notes.filter(n=>(n.path||'')===p)).sort((a,b)=>b.updated-a.updated);
     $('#grid').innerHTML=(selMode?'':`<button class="tile" data-new><span class="ci plus">+</span><span class="lb">Baru</span></button>`)+
       fl.map(f=>`<button class="tile${selSet.has('d'+f)?' sel':''}" data-dir="${esc(f)}"><span class="ci sq">${FICON}</span><span class="lb">${esc(f.split('/').pop())}</span></button>`).join('')+
-      nl.map(n=>`<button class="tile${selSet.has('f'+keyOf(n))?' sel':''}" data-open="${esc(keyOf(n))}"><span class="ci" style="background:${col(n.title)}">${esc([...n.title][0].toUpperCase())}</span><span class="lb">${esc(n.title)}</span></button>`).join('')+
+      nl.map(n=>`<button class="tile${selSet.has('f'+keyOf(n))?' sel':''}" data-open="${esc(keyOf(n))}"><span class="ci file">${PICON}</span><span class="lb">${esc(n.title)}</span></button>`).join('')+
       (!fl.length&&!nl.length?`<p class="muted" style="grid-column:1/-1;font-size:13px;margin:6px 0 0">${q?'Tidak ada yang cocok.':'Folder ini masih kosong.'}</p>`:'');
   };
   $('#q').oninput=draw;draw();
@@ -440,7 +440,7 @@ function edit(t,isNew,P){
   hd(false);app.className='edit';
   const n=isNew?{title:t,html:''}:byKey(t),path=isNew?(P||''):(n.path||'');
   app.innerHTML=`<div class="wd">
-  <div class="wbar"><button id="bk2" aria-label="Kembali">←</button>${isNew?`<input id="tt" placeholder="Judul halaman" value="${esc(n.title)}">`:`<div class="wt">${esc(n.title)}</div>`}<button id="sv">Simpan</button></div>
+  <div class="wbar"><button id="bk2" aria-label="Kembali">←</button><input id="tt" placeholder="Judul halaman" value="${esc(n.title)}"><button id="sv">Simpan</button></div>
   <div class="tabs"><button class="on" data-t="rh">Beranda</button><button data-t="rs">Sisipkan</button></div>
   <div class="rib" id="rh">${BT('undo','↶','Urungkan')}${BT('redo','↷','Ulangi')}<i class="sp"></i>
     <select id="st"><option value="p">Normal</option><option value="h2">Judul 1</option><option value="h3">Judul 2</option><option value="h4">Judul 3</option></select>
@@ -538,11 +538,11 @@ function edit(t,isNew,P){
   $('#fi').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
     const d=await shrink(f);rest();ex('insertHTML',`<figure class="thumb align-center" style="width:100%" data-new="1"><img src="${d}" alt=""><figcaption contenteditable="true">Keterangan gambar</figcaption></figure><p><br></p>`);const nf=ed.querySelector('figure[data-new]');if(nf){nf.removeAttribute('data-new');selectFigure(nf)}};
 
-  const tt=isNew?$('#tt'):null;
+  const tt=$('#tt');
   let cn=isNew?null:n,q=Promise.resolve(),tm=null,dead=false;
   async function persist(auto){
     if(dead)return cn?keyOf(cn):null;
-    let title=(isNew?tt.value:n.title).trim().replace(/[\\/]/g,'-');
+    let title=tt.value.trim().replace(/[\\/]/g,'-');
     const html=ed.innerHTML==='<br>'?'':cleanHTML(),plain=ed.innerText.trim();
     if(!cn&&!title&&!plain&&!html)return null;
     if(!title&&cn)title=cn.title;
@@ -556,9 +556,12 @@ function edit(t,isNew,P){
       }
     }
     const same=!!cn&&title===cn.title;
-    const o={id:mk(path,title),title,html,plain,updated:Date.now(),path,file:same?cn.file:undefined};
+    let file=same?cn.file:undefined,delOld=!!cn&&!same;
+    if(delOld){const f=uniqueFile(title,path,cn);if(f.toLowerCase()===(cn.file||'').toLowerCase()){file=cn.file;delOld=false}}
+    const o={id:mk(path,title),title,html,plain,updated:Date.now(),path,file};
     await put(o);
-    if(cn&&!same){try{await del(cn)}catch(e){}notes=notes.filter(x=>x!==cn)}
+    if(delOld){try{await del(cn)}catch(e){}}
+    if(cn&&!same)notes=notes.filter(x=>x!==cn);
     const i=notes.findIndex(x=>keyOf(x)===o.id);i>=0?notes[i]=o:notes.push(o);
     cn=o;return o.id;
   }
