@@ -131,6 +131,15 @@ html,body{background:#202328;color:var(--text)}
 /* folder & menu tambah */
 .ci.sq{border-radius:14px;background:#3a4049}
 .sheet button:disabled{opacity:.45}
+#hd .logo{flex:1}
+.ci{position:relative}
+.tile.sel .ci{outline:3px solid #8ab4f8;outline-offset:2px}
+.tile.sel .ci::after{content:'✓';position:absolute;top:-4px;right:-4px;width:22px;height:22px;border-radius:50%;background:#8ab4f8;color:#14233b;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.selbar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#25292f;border-top:1px solid #454b55;z-index:20}
+.selbar button{flex:1;padding:12px;border:1px solid #454b55;background:#343a43;border-radius:10px;font-size:16px;color:#e5e7eb}
+.selbar button:disabled{opacity:.4}
+.sheet.pop{background:transparent;align-items:flex-start;justify-content:flex-end}
+.sheet.pop .box{width:auto;min-width:230px;margin:calc(52px + env(safe-area-inset-top)) 10px 0;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.55)}
 .sheet .muted{font-size:13px}
 .tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #hd .logo{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:19px}
@@ -141,7 +150,7 @@ html,body{background:#202328;color:var(--text)}
 </style>
 </head>
 <body>
-<header id="hd" class="hide"><button id="bk" aria-label="Kembali">←</button><div class="logo">Manuscript</div></header>
+<header id="hd" class="hide"><button id="bk" aria-label="Kembali">←</button><div class="logo">Manuscript</div><button id="mo" class="hide" aria-label="Menu pilihan">⋮</button></header>
 <main id="app"></main>
 <input type="file" id="fi" accept="image/*" class="hide">
 <script>
@@ -159,7 +168,7 @@ const db=new Promise((ok,no)=>{const r=indexedDB.open('manuscript',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('notes',{keyPath:'id'});
   r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const idb=async(m,f)=>{const d=await db;return new Promise((ok,no)=>{const t=d.transaction('notes',m),o=f(t.objectStore('notes'));t.oncomplete=()=>ok(o&&o.result);t.onerror=()=>no(t.error)})};
-let notes=[],folders=[],cur={v:'home',p:''},leaving=null,syncRib=null,flushEdit=null,sheetEl=null;
+let notes=[],folders=[],cur={v:'home',p:''},leaving=null,syncRib=null,flushEdit=null,sheetEl=null,selMode=false,selSet=new Set();
 const mk=(p,t)=>p?p+'/'+t:t,keyOf=n=>mk(n.path||'',n.title);
 const byKey=k=>notes.find(n=>keyOf(n)===k);
 const resolveLink=(t,ctx)=>notes.find(n=>(n.path||'')===ctx&&n.title===t)||notes.find(n=>n.title===t);
@@ -229,16 +238,17 @@ function go(v,t,p){
 }
 async function show(s){
   if(leaving){const f=leaving;leaving=null;await f()}
-  syncRib=null;flushEdit=null;scrollTo(0,0);
+  syncRib=null;flushEdit=null;selMode=false;selSet.clear();scrollTo(0,0);
   if(s.v==='read'&&byKey(s.t))read(s.t);
   else if(s.v==='edit'&&byKey(s.t))edit(s.t,false);
   else if(s.v==='new')edit(s.t||'',true,s.p);
   else home(s.p);
 }
 onpopstate=e=>{cur=e.state||{v:'home',p:''};show(cur)};
-const hd=(on,t)=>{$('#hd').classList.toggle('hide',!on);$('#hd .logo').textContent=t||'Manuscript'};
+const hd=(on,t)=>{$('#hd').classList.toggle('hide',!on);$('#hd .logo').textContent=t||'Manuscript';$('#bk').textContent=selMode?'✕':'←';$('#mo').classList.toggle('hide',!(selMode&&on))};
 function goBack(){
   if(closeSheet())return;
+  if(selMode){selMode=false;selSet.clear();home(cur.p);return}
   if(cur.v==='home'&&!cur.p){if(AP)AP.exitApp();return}
   const before=cur;history.back();
   setTimeout(()=>{ // cadangan bila riwayat browser tidak punya halaman sebelumnya
@@ -257,26 +267,49 @@ const FICON='<svg width="30" height="30" viewBox="0 0 24 24" fill="#f6c453" aria
 function home(p){
   p=p||'';if(p&&!folders.includes(p))p='';
   if(cur.v==='home')cur.p=p;
-  hd(!!p,p.replace(/\//g,' / '));app.className='home';
-  app.innerHTML=`<div class="hm"${p?' style="padding-top:18px"':''}>${p?'':LOGO}
+  hd(!!p||selMode,selMode?selSet.size+' dipilih':p.replace(/\//g,' / '));app.className='home';
+  app.innerHTML=`<div class="hm" style="${p||selMode?'padding-top:18px;':''}${selMode?'padding-bottom:110px':''}">${p||selMode?'':LOGO}
   <input id="q" class="pill" placeholder="${p?'Telusuri di folder ini':'Telusuri halaman'}" autocomplete="off">
-  <div id="grid" class="grid"></div><p class="muted" id="hint" style="font-size:12px;margin-top:34px"></p></div>`;
+  <div id="grid" class="grid"></div><p class="muted" id="hint" style="font-size:12px;margin-top:34px"></p></div>${selMode?'<div class="selbar"><button id="sdel">🗑 Hapus</button><button id="smov">➜ Pindahkan</button></div>':''}`;
   $('#hint').textContent=FS?'Tersimpan di Documents/'+FOLDER+(p?'/'+p:''):'';
   const draw=()=>{
     const q=$('#q').value.toLowerCase().trim(),inP=x=>!p||x===p||x.startsWith(p+'/');
     const fl=(q?folders.filter(f=>f!==p&&inP(f)&&f.split('/').pop().toLowerCase().includes(q)):folders.filter(f=>parentOf(f)===p)).sort((a,b)=>a.localeCompare(b));
     const nl=(q?notes.filter(n=>inP(n.path||'')&&(n.title+' '+(n.plain||'')).toLowerCase().includes(q)):notes.filter(n=>(n.path||'')===p)).sort((a,b)=>b.updated-a.updated);
-    $('#grid').innerHTML=`<button class="tile" data-new><span class="ci plus">+</span><span class="lb">Baru</span></button>`+
-      fl.map(f=>`<button class="tile" data-dir="${esc(f)}"><span class="ci sq">${FICON}</span><span class="lb">${esc(f.split('/').pop())}</span></button>`).join('')+
-      nl.map(n=>`<button class="tile" data-open="${esc(keyOf(n))}"><span class="ci" style="background:${col(n.title)}">${esc([...n.title][0].toUpperCase())}</span><span class="lb">${esc(n.title)}</span></button>`).join('')+
+    $('#grid').innerHTML=(selMode?'':`<button class="tile" data-new><span class="ci plus">+</span><span class="lb">Baru</span></button>`)+
+      fl.map(f=>`<button class="tile${selSet.has('d'+f)?' sel':''}" data-dir="${esc(f)}"><span class="ci sq">${FICON}</span><span class="lb">${esc(f.split('/').pop())}</span></button>`).join('')+
+      nl.map(n=>`<button class="tile${selSet.has('f'+keyOf(n))?' sel':''}" data-open="${esc(keyOf(n))}"><span class="ci" style="background:${col(n.title)}">${esc([...n.title][0].toUpperCase())}</span><span class="lb">${esc(n.title)}</span></button>`).join('')+
       (!fl.length&&!nl.length?`<p class="muted" style="grid-column:1/-1;font-size:13px;margin:6px 0 0">${q?'Tidak ada yang cocok.':'Folder ini masih kosong.'}</p>`:'');
   };
   $('#q').oninput=draw;draw();
+  if(selMode){
+    const items=()=>[...selSet].map(k=>k[0]==='d'?{f:k.slice(1),n:null}:{f:null,n:byKey(k.slice(1))}).filter(it=>it.f!==null||it.n);
+    $('#sdel').onclick=()=>delSelected(items());
+    $('#smov').onclick=()=>movePicker(items());
+    $('#mo').onclick=selMenu;refreshSel();
+  }
+}
+function refreshSel(){
+  const k=selSet.size;$('#hd .logo').textContent=k+' dipilih';
+  ['#sdel','#smov'].forEach(i=>{const b=$(i);if(b)b.disabled=!k});
+}
+function selMenu(){
+  const fk=notes.filter(n=>(n.path||'')===cur.p).map(n=>'f'+keyOf(n)),dk=folders.filter(x=>parentOf(x)===cur.p).map(x=>'d'+x);
+  const all=a=>a.length>0&&a.every(k=>selSet.has(k));
+  sheet(`<button data-a="f"${fk.length?'':' disabled'}>${all(fk)?'☐ Batal pilih semua file':'☑ Pilih semua file'}</button><button data-a="d"${dk.length?'':' disabled'}>${all(dk)?'☐ Batal pilih semua folder':'☑ Pilih semua folder'}</button>`,
+    a=>{const arr=a==='f'?fk:dk;if(all(arr))arr.forEach(k=>selSet.delete(k));else arr.forEach(k=>selSet.add(k));home(cur.p)},'pop');
+}
+async function delSelected(items){
+  if(!items.length)return;
+  const nf=items.filter(i=>i.f!==null).length,nn=items.length-nf;
+  if(!confirm('Hapus '+items.length+' item terpilih ('+nf+' folder, '+nn+' file)?'+(nf?' Folder dihapus beserta semua isinya.':'')+' Tindakan ini tidak bisa dibatalkan.'))return;
+  try{for(const it of items){if(it.f!==null)await rmTree(it.f);else{await del(it.n);notes=notes.filter(x=>x!==it.n)}}}catch(e){}
+  selMode=false;selSet.clear();home(cur.p);
 }
 function closeSheet(){if(!sheetEl)return false;sheetEl.remove();sheetEl=null;return true}
-function sheet(html,onAct){
+function sheet(html,onAct,cls){
   closeSheet();
-  const o=document.createElement('div'),born=Date.now();o.className='sheet';o.innerHTML=`<div class="box">${html}</div>`;
+  const o=document.createElement('div'),born=Date.now();o.className='sheet'+(cls?' '+cls:'');o.innerHTML=`<div class="box">${html}</div>`;
   o.onclick=async e=>{if(Date.now()-born<350)return;const a=e.target.dataset.a;
     if(e.target===o||a==='x'){closeSheet();return}
     if(a){closeSheet();await onAct(a)}};
@@ -345,12 +378,14 @@ async function doMove(f,n,dest){
     await put(c);await del(n);notes=notes.filter(x=>x!==n);notes.push(c);
   }
 }
-function movePicker(f,n){
-  const name=f!==null?f.split('/').pop():n.title,from=f!==null?parentOf(f):(n.path||'');
+function movePicker(items){
+  const one=items.length===1?items[0]:null,first=items[0];
+  const name=one?(one.f!==null?one.f.split('/').pop():one.n.title):items.length+' item';
+  const from=first.f!==null?parentOf(first.f):(first.n.path||'');
   let at=from;closeSheet();
   const o=document.createElement('div'),born=Date.now();o.className='sheet';sheetEl=o;
   const draw=()=>{
-    const subs=folders.filter(x=>parentOf(x)===at&&!(f!==null&&under(x,f))).sort((a,b)=>a.localeCompare(b)),same=at===from;
+    const subs=folders.filter(x=>parentOf(x)===at&&!items.some(it=>it.f!==null&&under(x,it.f))).sort((a,b)=>a.localeCompare(b)),same=at===from;
     o.innerHTML=`<div class="box" style="max-height:85vh"><b>Pindahkan "${esc(name)}" ke:</b>
     <div class="muted">${esc(FOLDER+(at?' / '+at.replace(/\//g,' / '):''))}</div>
     <div style="overflow-y:auto;display:flex;flex-direction:column;gap:8px;max-height:42vh">
@@ -361,10 +396,10 @@ function movePicker(f,n){
   };
   o.onclick=async e=>{
     if(Date.now()-born<350)return;
-    const b=e.target.closest('button'),g=b?b.dataset.g:undefined,a=b?b.dataset.a:undefined;
+    const bt=e.target.closest('button'),g=bt?bt.dataset.g:undefined,a=bt?bt.dataset.a:undefined;
     if(e.target===o||a==='x'){closeSheet();return}
     if(g!==undefined){at=g==='..'?parentOf(at):g;draw();return}
-    if(a==='go'&&at!==from){closeSheet();try{await doMove(f,n,at)}catch(err){}home(cur.p)}
+    if(a==='go'&&at!==from){closeSheet();try{for(const it of items)await doMove(it.f,it.n,at)}catch(err){}selMode=false;selSet.clear();home(cur.p)}
   };
   draw();document.body.append(o);
 }
@@ -372,11 +407,12 @@ function itemMenu(t){
   const f=t.dataset.dir!==undefined?t.dataset.dir:null,n=f===null?byKey(t.dataset.open):null;
   if(f===null&&!n)return;
   const name=f!==null?f.split('/').pop():n.title;
-  sheet(`<b>${f!==null?'📁':'📄'} ${esc(name)}</b><button data-a="dup">⧉ Duplikat</button><button data-a="mov">➜ Pindahkan</button>${f!==null?'<button data-a="ren">✎ Ganti nama</button>':''}<button data-a="del" style="color:#ff8a80">🗑 Hapus</button><button data-a="x">Batal</button>`,
+  sheet(`<b>${f!==null?'📁':'📄'} ${esc(name)}</b><button data-a="sel">☑ Pilih</button><button data-a="dup">⧉ Duplikat</button><button data-a="mov">➜ Pindahkan</button>${f!==null?'<button data-a="ren">✎ Ganti nama</button>':''}<button data-a="del" style="color:#ff8a80">🗑 Hapus</button><button data-a="x">Batal</button>`,
     async a=>{
       try{
         if(a==='dup'){if(f!==null)await dupFolder(f);else await dupNote(n)}
-        else if(a==='mov'){movePicker(f,n);return}
+        else if(a==='sel'){selMode=true;selSet=new Set([f!==null?'d'+f:'f'+keyOf(n)]);home(cur.p);return}
+        else if(a==='mov'){movePicker([{f,n}]);return}
         else if(a==='ren')await renameFolder(f);
         else if(a==='del'){
           if(!confirm(f!==null?'Hapus folder "'+name+'" beserta SEMUA isinya? Tindakan ini tidak bisa dibatalkan.':'Hapus halaman "'+name+'"? Tindakan ini tidak bisa dibatalkan.'))return;
@@ -547,6 +583,9 @@ function shrink(f){return new Promise(ok=>{const r=new FileReader();r.onload=()=
 /* ---------- Awal ---------- */
 app.addEventListener('click',e=>{
   if(lpDone){lpDone=false;return}
+  if(selMode){const t=e.target.closest('.tile[data-dir],.tile[data-open]');
+    if(t){const k=t.dataset.dir!==undefined?'d'+t.dataset.dir:'f'+t.dataset.open;selSet.has(k)?selSet.delete(k):selSet.add(k);t.classList.toggle('sel');refreshSel()}
+    return}
   const a=e.target.closest('a[data-link]');
   if(a){e.preventDefault();if(cur.v==='edit')return;const t=a.dataset.link,ctx=cur.v==='read'?((byKey(cur.t)||{}).path||''):'',r=resolveLink(t,ctx);r?go('read',keyOf(r)):go('new',t,ctx);return}
   const d=e.target.closest('[data-dir]');if(d)return go('home',null,d.dataset.dir);
@@ -556,6 +595,7 @@ app.addEventListener('click',e=>{
 /* ---------- Tekan lama pada folder/file ---------- */
 let lpT=null,lpDone=false,lpX=0,lpY=0;
 app.addEventListener('pointerdown',e=>{
+  if(selMode)return;
   const t=e.target.closest('.tile[data-dir],.tile[data-open]');if(!t)return;
   lpDone=false;lpX=e.clientX;lpY=e.clientY;clearTimeout(lpT);
   lpT=setTimeout(()=>{lpDone=true;if(navigator.vibrate)navigator.vibrate(15);itemMenu(t)},500);
