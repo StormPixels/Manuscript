@@ -130,6 +130,7 @@ html,body{background:#202328;color:var(--text)}
 
 /* folder & menu tambah */
 .ci.sq{border-radius:14px;background:#3a4049}
+.tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #hd .logo{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:19px}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:50}
 .sheet .box{width:100%;background:#2a2e34;color:#e5e7eb;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
@@ -150,13 +151,13 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 // Di browser (uji coba): IndexedDB. IndexedDB juga dipakai untuk memindahkan catatan lama ke file.
 const NATIVE=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
 const plug=n=>Capacitor.registerPlugin?Capacitor.registerPlugin(n):Capacitor.Plugins[n];
-const FS=NATIVE?plug('Filesystem'):null,AF=NATIVE?plug('AllFiles'):null;
+const FS=NATIVE?plug('Filesystem'):null,AF=NATIVE?plug('AllFiles'):null,AP=NATIVE?plug('App'):null;
 const DIR='DOCUMENTS',FOLDER='Manuscript';
 const db=new Promise((ok,no)=>{const r=indexedDB.open('manuscript',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('notes',{keyPath:'id'});
   r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const idb=async(m,f)=>{const d=await db;return new Promise((ok,no)=>{const t=d.transaction('notes',m),o=f(t.objectStore('notes'));t.oncomplete=()=>ok(o&&o.result);t.onerror=()=>no(t.error)})};
-let notes=[],folders=[],cur={v:'home',p:''},leaving=null,syncRib=null;
+let notes=[],folders=[],cur={v:'home',p:''},leaving=null,syncRib=null,flushEdit=null,sheetEl=null;
 const mk=(p,t)=>p?p+'/'+t:t,keyOf=n=>mk(n.path||'',n.title);
 const byKey=k=>notes.find(n=>keyOf(n)===k);
 const resolveLink=(t,ctx)=>notes.find(n=>(n.path||'')===ctx&&n.title===t)||notes.find(n=>n.title===t);
@@ -226,7 +227,7 @@ function go(v,t,p){
 }
 async function show(s){
   if(leaving){const f=leaving;leaving=null;await f()}
-  syncRib=null;scrollTo(0,0);
+  syncRib=null;flushEdit=null;scrollTo(0,0);
   if(s.v==='read'&&byKey(s.t))read(s.t);
   else if(s.v==='edit'&&byKey(s.t))edit(s.t,false);
   else if(s.v==='new')edit(s.t||'',true,s.p);
@@ -234,7 +235,17 @@ async function show(s){
 }
 onpopstate=e=>{cur=e.state||{v:'home',p:''};show(cur)};
 const hd=(on,t)=>{$('#hd').classList.toggle('hide',!on);$('#hd .logo').textContent=t||'Manuscript'};
-$('#bk').onclick=()=>history.back();
+function goBack(){
+  if(closeSheet())return;
+  if(cur.v==='home'&&!cur.p){if(AP)AP.exitApp();return}
+  const before=cur;history.back();
+  setTimeout(()=>{ // cadangan bila riwayat browser tidak punya halaman sebelumnya
+    if(cur!==before)return;
+    const p=before.v==='home'?parentOf(before.p||''):before.v==='new'?(before.p||''):((byKey(before.t)||{}).path||'');
+    cur={v:'home',p};history.replaceState(cur,'');show(cur);
+  },300);
+}
+$('#bk').onclick=goBack;
 
 /* ---------- Beranda & folder ---------- */
 const COL=['#5f6368','#c5221f','#188038','#1a73e8','#9334e6','#e37400','#d01884','#007b83'];
@@ -260,20 +271,79 @@ function home(p){
   };
   $('#q').oninput=draw;draw();
 }
+function closeSheet(){if(!sheetEl)return false;sheetEl.remove();sheetEl=null;return true}
+function sheet(html,onAct){
+  closeSheet();
+  const o=document.createElement('div'),born=Date.now();o.className='sheet';o.innerHTML=`<div class="box">${html}</div>`;
+  o.onclick=async e=>{if(Date.now()-born<350)return;const a=e.target.dataset.a;
+    if(e.target===o||a==='x'){closeSheet();return}
+    if(a){closeSheet();await onAct(a)}};
+  document.body.append(o);sheetEl=o;
+}
 function addMenu(p){
-  const o=document.createElement('div');o.className='sheet';
-  o.innerHTML=`<div class="box"><b>Tambah di ${esc(p?FOLDER+' / '+p.replace(/\//g,' / '):FOLDER)}</b><button data-a="f">📄 Tambah file</button><button data-a="d">📁 Tambah folder</button><button data-a="x">Batal</button></div>`;
-  o.onclick=async e=>{const a=e.target.dataset.a;
-    if(e.target===o||a==='x'){o.remove();return}
-    if(a==='f'){o.remove();go('new','',p)}
-    if(a==='d'){o.remove();await newFolder(p)}};
-  document.body.append(o);
+  sheet(`<b>Tambah di ${esc(p?FOLDER+' / '+p.replace(/\//g,' / '):FOLDER)}</b><button data-a="f">📄 Tambah file</button><button data-a="d">📁 Tambah folder</button><button data-a="x">Batal</button>`,
+    async a=>{if(a==='f')go('new','',p);if(a==='d')await newFolder(p)});
 }
 async function newFolder(p){
   const raw=(prompt('Nama folder:','')||'').trim();if(!raw)return;
   const name=fname(raw),path=mk(p,name);
   if(folders.some(f=>f.toLowerCase()===path.toLowerCase()))return alert('Folder "'+name+'" sudah ada.');
   await mkFolder(path);folders.push(path);home(p);
+}
+
+/* ---------- Duplikat, ganti nama, hapus ---------- */
+const under=(x,f)=>x===f||x.startsWith(f+'/');
+async function copyTree(f,dst){
+  const subF=folders.filter(x=>under(x,f)),subN=notes.filter(n=>under(n.path||'',f)),remap=x=>dst+x.slice(f.length);
+  for(const x of subF){const d=remap(x);await mkFolder(d);folders.push(d)}
+  for(const n of subN){const c={...n,path:remap(n.path||''),file:undefined};c.id=keyOf(c);await put(c);notes.push(c)}
+}
+async function rmTree(f){
+  try{
+    if(FS)await FS.rmdir({path:fsPath(f),directory:DIR,recursive:true});
+    else{
+      for(const n of notes.filter(n=>under(n.path||'',f)))await idb('readwrite',o=>o.delete(n.id));
+      for(const x of folders.filter(x=>under(x,f)))await idb('readwrite',o=>o.delete('dir:'+x));
+    }
+  }catch(e){alert('Gagal menghapus folder: '+(e.message||e));throw e}
+  notes=notes.filter(n=>!under(n.path||'',f));folders=folders.filter(x=>!under(x,f));
+}
+async function moveTree(f,dst){await copyTree(f,dst);await rmTree(f)}
+async function dupFolder(f){
+  const par=parentOf(f),base=f.split('/').pop();let k=1;
+  while(folders.some(x=>x.toLowerCase()===mk(par,fname(base+'_'+k)).toLowerCase()))k++;
+  await copyTree(f,mk(par,fname(base+'_'+k)));
+}
+async function dupNote(n){
+  let k=1;while(byKey(mk(n.path||'',n.title+'_'+k)))k++;
+  const c={...n,title:n.title+'_'+k,file:undefined,updated:Date.now()};c.id=keyOf(c);
+  await put(c);notes.push(c);
+}
+async function renameFolder(f){
+  const par=parentOf(f),old=f.split('/').pop();
+  const raw=(prompt('Nama folder baru:',old)||'').trim();if(!raw)return;
+  const name=fname(raw);if(name===old)return;
+  const dst=mk(par,name);
+  if(name.toLowerCase()===old.toLowerCase()){const tmp=mk(par,'_tmp'+Date.now());await moveTree(f,tmp);await moveTree(tmp,dst);return}
+  if(folders.some(x=>x.toLowerCase()===dst.toLowerCase()))return alert('Folder "'+name+'" sudah ada.');
+  await moveTree(f,dst);
+}
+function itemMenu(t){
+  const f=t.dataset.dir!==undefined?t.dataset.dir:null,n=f===null?byKey(t.dataset.open):null;
+  if(f===null&&!n)return;
+  const name=f!==null?f.split('/').pop():n.title;
+  sheet(`<b>${f!==null?'📁':'📄'} ${esc(name)}</b><button data-a="dup">⧉ Duplikat</button>${f!==null?'<button data-a="ren">✎ Ganti nama</button>':''}<button data-a="del" style="color:#ff8a80">🗑 Hapus</button><button data-a="x">Batal</button>`,
+    async a=>{
+      try{
+        if(a==='dup'){if(f!==null)await dupFolder(f);else await dupNote(n)}
+        else if(a==='ren')await renameFolder(f);
+        else if(a==='del'){
+          if(!confirm(f!==null?'Hapus folder "'+name+'" beserta SEMUA isinya? Tindakan ini tidak bisa dibatalkan.':'Hapus halaman "'+name+'"? Tindakan ini tidak bisa dibatalkan.'))return;
+          if(f!==null)await rmTree(f);else{await del(n);notes=notes.filter(x=>x!==n)}
+        }
+        home(cur.p);
+      }catch(e){}
+    });
 }
 
 /* ---------- Mode baca (gaya Wikipedia) ---------- */
@@ -391,27 +461,43 @@ function edit(t,isNew,P){
   $('#fi').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
     const d=await shrink(f);rest();ex('insertHTML',`<figure class="thumb align-center" style="width:100%" data-new="1"><img src="${d}" alt=""><figcaption contenteditable="true">Keterangan gambar</figcaption></figure><p><br></p>`);const nf=ed.querySelector('figure[data-new]');if(nf){nf.removeAttribute('data-new');selectFigure(nf)}};
 
+  const tt=isNew?$('#tt'):null;
+  let cn=isNew?null:n,q=Promise.resolve(),tm=null,dead=false;
   async function persist(auto){
-    let title=(isNew?$('#tt').value:n.title).trim().replace(/[\\/]/g,'-');
+    if(dead)return cn?keyOf(cn):null;
+    let title=(isNew?tt.value:n.title).trim().replace(/[\\/]/g,'-');
     const html=ed.innerHTML==='<br>'?'':cleanHTML(),plain=ed.innerText.trim();
-    if(!isNew&&html===n.html)return keyOf(n);
-    if(isNew){
-      if(!title&&!plain&&!html)return null;
-      title=title||'Tanpa judul';
-      if(byKey(mk(path,title))){if(!auto){alert('Judul "'+title+'" sudah dipakai di folder ini. Pilih judul lain.');return null}
-        let k=2;while(byKey(mk(path,title+' ('+k+')')))k++;title+=' ('+k+')'}
+    if(!cn&&!title&&!plain&&!html)return null;
+    if(!title&&cn)title=cn.title;
+    if(cn&&title===cn.title&&html===cn.html)return keyOf(cn);
+    title=title||'Tanpa judul';
+    if(!cn||title!==cn.title){
+      if(byKey(mk(path,title))){
+        if(!auto){alert('Judul "'+title+'" sudah dipakai di folder ini. Pilih judul lain.');return null}
+        if(cn)title=cn.title;
+        else{let k=2;while(byKey(mk(path,title+' ('+k+')')))k++;title+=' ('+k+')'}
+      }
     }
-    const o={id:mk(path,title),title,html,plain,updated:Date.now(),path,file:isNew?undefined:n.file};
+    const same=!!cn&&title===cn.title;
+    const o={id:mk(path,title),title,html,plain,updated:Date.now(),path,file:same?cn.file:undefined};
     await put(o);
+    if(cn&&!same){try{await del(cn)}catch(e){}notes=notes.filter(x=>x!==cn)}
     const i=notes.findIndex(x=>keyOf(x)===o.id);i>=0?notes[i]=o:notes.push(o);
-    return o.id;
+    cn=o;return o.id;
   }
-  leaving=()=>persist(true);
-  $('#bk2').onclick=()=>history.back();
-  $('#sv').onclick=async()=>{leaving=null;const r=await persist(false).catch(()=>null);
-    if(r)go('read',r);else{leaving=()=>persist(true);if(isNew&&!$('#tt').value.trim())alert('Isi judul halaman terlebih dahulu.')}};
-  if(!isNew)$('#dl').onclick=async()=>{if(confirm('Hapus halaman "'+n.title+'"?')){leaving=null;await del(n);notes=notes.filter(x=>x!==n);history.back()}};
-  if(isNew&&!n.title)$('#tt').focus();
+  const run=auto=>{const r=q.then(()=>persist(auto));q=r.catch(()=>{});return r};
+  const sched=()=>{clearTimeout(tm);tm=setTimeout(()=>run(true).catch(()=>{}),1000)};
+  const doLeave=async()=>{clearTimeout(tm);await run(true).catch(()=>{});dead=true};
+  leaving=doLeave;
+  flushEdit=()=>{clearTimeout(tm);run(true).catch(()=>{})};
+  const W=$('.wd');['input','change','click'].forEach(ev=>W.addEventListener(ev,sched));
+  $('#bk2').onclick=goBack;
+  $('#sv').onclick=async()=>{clearTimeout(tm);leaving=null;const r=await run(false).catch(()=>null);
+    if(r){dead=true;go('read',r)}
+    else{leaving=doLeave;if(isNew&&!tt.value.trim()&&!ed.innerText.trim())alert('Isi judul atau isi halaman terlebih dahulu.')}};
+  if(!isNew)$('#dl').onclick=async()=>{if(confirm('Hapus halaman "'+n.title+'"? Tindakan ini tidak bisa dibatalkan.')){
+    dead=true;leaving=null;clearTimeout(tm);await q.catch(()=>{});await del(cn);notes=notes.filter(x=>x!==cn);goBack()}};
+  if(isNew&&!n.title)tt.focus();
 }
 function shrink(f){return new Promise(ok=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{
   const k=Math.min(1,1000/Math.max(im.width,im.height)),c=document.createElement('canvas');
@@ -419,12 +505,30 @@ function shrink(f){return new Promise(ok=>{const r=new FileReader();r.onload=()=
 
 /* ---------- Awal ---------- */
 app.addEventListener('click',e=>{
+  if(lpDone){lpDone=false;return}
   const a=e.target.closest('a[data-link]');
   if(a){e.preventDefault();if(cur.v==='edit')return;const t=a.dataset.link,ctx=cur.v==='read'?((byKey(cur.t)||{}).path||''):'',r=resolveLink(t,ctx);r?go('read',keyOf(r)):go('new',t,ctx);return}
   const d=e.target.closest('[data-dir]');if(d)return go('home',null,d.dataset.dir);
   const o=e.target.closest('[data-open]');if(o)return go('read',o.dataset.open);
   if(e.target.closest('[data-new]'))addMenu(cur.p||'');
 });
+/* ---------- Tekan lama pada folder/file ---------- */
+let lpT=null,lpDone=false,lpX=0,lpY=0;
+app.addEventListener('pointerdown',e=>{
+  const t=e.target.closest('.tile[data-dir],.tile[data-open]');if(!t)return;
+  lpDone=false;lpX=e.clientX;lpY=e.clientY;clearTimeout(lpT);
+  lpT=setTimeout(()=>{lpDone=true;if(navigator.vibrate)navigator.vibrate(15);itemMenu(t)},500);
+});
+app.addEventListener('pointermove',e=>{if(Math.abs(e.clientX-lpX)+Math.abs(e.clientY-lpY)>12)clearTimeout(lpT)});
+['pointerup','pointercancel'].forEach(ev=>app.addEventListener(ev,()=>clearTimeout(lpT)));
+app.addEventListener('contextmenu',e=>{if(e.target.closest('.tile'))e.preventDefault()});
+
+/* ---------- Simpan otomatis saat aplikasi ditutup / ke latar belakang ---------- */
+const flushNow=()=>{if(flushEdit)flushEdit()};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushNow()});
+addEventListener('pagehide',flushNow);
+if(AP){AP.addListener('appStateChange',st=>{if(!st.isActive)flushNow()});AP.addListener('backButton',goBack)}
+
 /* ---------- Izin penyimpanan & mulai ---------- */
 let waitPerm=false;
 const permStatus=async()=>{try{return await AF.status()}catch(e){return{granted:true,sdk:0}}};
