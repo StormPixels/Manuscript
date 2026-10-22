@@ -130,6 +130,8 @@ html,body{background:#202328;color:var(--text)}
 
 /* folder & menu tambah */
 .ci.sq{border-radius:14px;background:#3a4049}
+.sheet button:disabled{opacity:.45}
+.sheet .muted{font-size:13px}
 .tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #hd .logo{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:19px}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:50}
@@ -328,14 +330,53 @@ async function renameFolder(f){
   if(folders.some(x=>x.toLowerCase()===dst.toLowerCase()))return alert('Folder "'+name+'" sudah ada.');
   await moveTree(f,dst);
 }
+async function doMove(f,n,dest){
+  if(f!==null){
+    if(under(dest,f))return alert('Folder tidak bisa dipindahkan ke dalam dirinya sendiri.');
+    const base=f.split('/').pop();let name=base,k=1;
+    while(folders.some(x=>x.toLowerCase()===mk(dest,name).toLowerCase()))name=base+'_'+(k++);
+    if(name!==base)alert('Di tujuan sudah ada folder "'+base+'". Folder dipindahkan dengan nama "'+name+'".');
+    await moveTree(f,mk(dest,name));
+  }else{
+    let title=n.title,k=1;
+    while(byKey(mk(dest,title)))title=n.title+'_'+(k++);
+    if(title!==n.title)alert('Di tujuan sudah ada halaman "'+n.title+'". Halaman dipindahkan dengan nama "'+title+'".');
+    const c={...n,title,path:dest,file:undefined};c.id=keyOf(c);
+    await put(c);await del(n);notes=notes.filter(x=>x!==n);notes.push(c);
+  }
+}
+function movePicker(f,n){
+  const name=f!==null?f.split('/').pop():n.title,from=f!==null?parentOf(f):(n.path||'');
+  let at=from;closeSheet();
+  const o=document.createElement('div'),born=Date.now();o.className='sheet';sheetEl=o;
+  const draw=()=>{
+    const subs=folders.filter(x=>parentOf(x)===at&&!(f!==null&&under(x,f))).sort((a,b)=>a.localeCompare(b)),same=at===from;
+    o.innerHTML=`<div class="box" style="max-height:85vh"><b>Pindahkan "${esc(name)}" ke:</b>
+    <div class="muted">${esc(FOLDER+(at?' / '+at.replace(/\//g,' / '):''))}</div>
+    <div style="overflow-y:auto;display:flex;flex-direction:column;gap:8px;max-height:42vh">
+      ${at?'<button data-g="..">⬆ Naik satu tingkat</button>':''}
+      ${subs.map(x=>`<button data-g="${esc(x)}">📁 ${esc(x.split('/').pop())}</button>`).join('')||'<span class="muted">Tidak ada folder di sini.</span>'}
+    </div>
+    <button data-a="go"${same?' disabled':''}>${same?'Sudah di lokasi ini':'Pindahkan ke sini'}</button><button data-a="x">Batal</button></div>`;
+  };
+  o.onclick=async e=>{
+    if(Date.now()-born<350)return;
+    const b=e.target.closest('button'),g=b?b.dataset.g:undefined,a=b?b.dataset.a:undefined;
+    if(e.target===o||a==='x'){closeSheet();return}
+    if(g!==undefined){at=g==='..'?parentOf(at):g;draw();return}
+    if(a==='go'&&at!==from){closeSheet();try{await doMove(f,n,at)}catch(err){}home(cur.p)}
+  };
+  draw();document.body.append(o);
+}
 function itemMenu(t){
   const f=t.dataset.dir!==undefined?t.dataset.dir:null,n=f===null?byKey(t.dataset.open):null;
   if(f===null&&!n)return;
   const name=f!==null?f.split('/').pop():n.title;
-  sheet(`<b>${f!==null?'📁':'📄'} ${esc(name)}</b><button data-a="dup">⧉ Duplikat</button>${f!==null?'<button data-a="ren">✎ Ganti nama</button>':''}<button data-a="del" style="color:#ff8a80">🗑 Hapus</button><button data-a="x">Batal</button>`,
+  sheet(`<b>${f!==null?'📁':'📄'} ${esc(name)}</b><button data-a="dup">⧉ Duplikat</button><button data-a="mov">➜ Pindahkan</button>${f!==null?'<button data-a="ren">✎ Ganti nama</button>':''}<button data-a="del" style="color:#ff8a80">🗑 Hapus</button><button data-a="x">Batal</button>`,
     async a=>{
       try{
         if(a==='dup'){if(f!==null)await dupFolder(f);else await dupNote(n)}
+        else if(a==='mov'){movePicker(f,n);return}
         else if(a==='ren')await renameFolder(f);
         else if(a==='del'){
           if(!confirm(f!==null?'Hapus folder "'+name+'" beserta SEMUA isinya? Tindakan ini tidak bisa dibatalkan.':'Hapus halaman "'+name+'"? Tindakan ini tidak bisa dibatalkan.'))return;
