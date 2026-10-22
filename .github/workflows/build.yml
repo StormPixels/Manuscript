@@ -1,4 +1,4 @@
-name: Build APK Manuskrip
+name: Build APK Manuscript
 
 on:
   push:
@@ -36,9 +36,9 @@ jobs:
           ./gradlew assembleDebug
 
       - name: Ganti nama APK
-        run: mv android/app/build/outputs/apk/debug/app-debug.apk Manuskrip.apk
+        run: mv android/app/build/outputs/apk/debug/app-debug.apk Manuscript.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Manuskrip-APK
-          path: Manuskrip.apk
+          name: Manuscript-APK
+          path: Manuscript.apk
