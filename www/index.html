@@ -148,6 +148,9 @@ html,body{background:#202328;color:var(--text)}
 .sheet .box{width:100%;background:#2a2e34;color:#e5e7eb;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
 .sheet b{font-weight:600}
 .sheet button{padding:14px;border:1px solid #454b55;background:#343a43;border-radius:10px;font-size:16px;text-align:left}
+.srow{display:flex;gap:8px;align-items:center}
+.srow .pill{flex:1;width:auto;min-width:0}
+.sortb{flex:none;height:50px;padding:0 16px;border-radius:26px;border:1px solid #454b55;background:#30353d;color:#f1f3f5;font-size:15px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -169,7 +172,7 @@ const db=new Promise((ok,no)=>{const r=indexedDB.open('manuscript',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('notes',{keyPath:'id'});
   r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const idb=async(m,f)=>{const d=await db;return new Promise((ok,no)=>{const t=d.transaction('notes',m),o=f(t.objectStore('notes'));t.oncomplete=()=>ok(o&&o.result);t.onerror=()=>no(t.error)})};
-let notes=[],folders=[],cur={v:'home',p:''},leaving=null,syncRib=null,flushEdit=null,sheetEl=null,selMode=false,selSet=new Set();
+let notes=[],folders=[],ftime={},sortMode=(()=>{try{return localStorage.getItem('sort')==='time'?'time':'name'}catch(e){return 'name'}})(),cur={v:'home',p:''},leaving=null,syncRib=null,flushEdit=null,sheetEl=null,selMode=false,selSet=new Set();
 const mk=(p,t)=>p?p+'/'+t:t,keyOf=n=>mk(n.path||'',n.title);
 const byKey=k=>notes.find(n=>keyOf(n)===k);
 const resolveLink=(t,ctx)=>notes.find(n=>(n.path||'')===ctx&&n.title===t)||notes.find(n=>n.title===t);
@@ -181,23 +184,23 @@ async function load(){
   if(!FS){
     const all=await idb('readonly',o=>o.getAll());
     notes=all.filter(x=>!x.folder).map(n=>({...n,path:n.path||''}));
-    folders=all.filter(x=>x.folder).map(x=>x.path);return;
+    folders=all.filter(x=>x.folder).map(x=>x.path);ftime={};all.filter(x=>x.folder).forEach(x=>ftime[x.path]=x.t||0);return;
   }
   try{
     try{await FS.mkdir({path:FOLDER,directory:DIR,recursive:true})}catch(e){}
-    const out=[],dirs=[];
+    const out=[],dirs=[],ft={};
     const scan=async p=>{
       const r=await FS.readdir({path:fsPath(p),directory:DIR});
       for(const f of r.files){
         const name=f.name||f;
-        if(f.type==='directory'){const sub=mk(p,name);dirs.push(sub);await scan(sub)}
+        if(f.type==='directory'){const sub=mk(p,name);dirs.push(sub);ft[sub]=Number(f.mtime||f.ctime)||0;await scan(sub)}
         else if(/\.json$/i.test(name)){
           try{const d=await FS.readFile({path:fsPath(p,name),directory:DIR,encoding:'utf8'});
             const n=JSON.parse(d.data);if(!n||!n.title)continue;n.file=name;n.path=p;n.id=mk(p,n.title);out.push(n)}catch(e){}
         }
       }
     };
-    await scan('');notes=out;folders=dirs;
+    await scan('');notes=out;folders=dirs;ftime=ft;
   }catch(e){alert('Gagal membaca penyimpanan: '+(e.message||e));notes=[];folders=[]}
 }
 async function put(n){
@@ -213,7 +216,7 @@ async function del(n){
   catch(e){alert('Gagal menghapus: '+(e.message||e));throw e}
 }
 async function mkFolder(path){
-  try{if(FS)await FS.mkdir({path:fsPath(path),directory:DIR,recursive:true});else await idb('readwrite',o=>o.put({id:'dir:'+path,folder:true,path}))}
+  try{if(FS)await FS.mkdir({path:fsPath(path),directory:DIR,recursive:true});else await idb('readwrite',o=>o.put({id:'dir:'+path,folder:true,path,t:Date.now()}));ftime[path]=Date.now()}
   catch(e){alert('Gagal membuat folder: '+(e.message||e));throw e}
 }
 async function migrate(){ // catatan lama -> file di Documents/Manuscript
@@ -261,6 +264,11 @@ function goBack(){
 $('#bk').onclick=goBack;
 
 /* ---------- Beranda & folder ---------- */
+const cmpName=(a,b)=>a.localeCompare(b,'id',{numeric:true,sensitivity:'base'});
+const baseName=f=>f.split('/').pop();
+const folderTime=f=>notes.reduce((m,n)=>under(n.path||'',f)&&(n.updated||0)>m?n.updated:m,ftime[f]||0);
+const cmpF=(a,b)=>sortMode==='time'?(folderTime(a)-folderTime(b)||cmpName(baseName(a),baseName(b))):cmpName(baseName(a),baseName(b));
+const cmpN=(a,b)=>sortMode==='time'?((a.updated||0)-(b.updated||0)||cmpName(a.title,b.title)):cmpName(a.title,b.title);
 const LOGO='<svg width="68" height="68" viewBox="0 0 64 64" aria-hidden="true"><rect x="12" y="6" width="40" height="52" rx="4" fill="#fff" stroke="#36c" stroke-width="3"/><path d="M40 6v12h12" fill="none" stroke="#36c" stroke-width="3" stroke-linejoin="round"/><path d="M20 28h24M20 36h24M20 44h14" stroke="#36c" stroke-width="3" stroke-linecap="round"/></svg><div class="wm">Manuscript</div>';
 const PICON='<svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#e8eaed"/><path d="M14 2l6 6h-4a2 2 0 0 1-2-2z" fill="#aab0b9"/><path d="M8 13h8M8 17h6" stroke="#5f6672" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const FICON='<svg width="30" height="30" viewBox="0 0 24 24" fill="#f6c453" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
@@ -269,19 +277,22 @@ function home(p){
   if(cur.v==='home')cur.p=p;
   hd(!!p||selMode,selMode?selSet.size+' dipilih':p.replace(/\//g,' / '));app.className='home';
   app.innerHTML=`<div class="hm" style="${p||selMode?'padding-top:18px;':''}${selMode?'padding-bottom:110px':''}">${p||selMode?'':LOGO}
-  <input id="q" class="pill" placeholder="${p?'Telusuri di folder ini':'Telusuri halaman'}" autocomplete="off">
+  <div class="srow"><input id="q" class="pill" placeholder="${p?'Telusuri di folder ini':'Telusuri halaman'}" autocomplete="off"><button id="sortb" class="sortb" aria-label="Urutkan"></button></div>
   <div id="grid" class="grid"></div><p class="muted" id="hint" style="font-size:12px;margin-top:34px"></p></div>${selMode?'<div class="selbar"><button id="sdel">🗑 Hapus</button><button id="smov">➜ Pindahkan</button></div>':''}`;
   $('#hint').textContent=FS?'Tersimpan di Documents/'+FOLDER+(p?'/'+p:''):'';
   const draw=()=>{
     const q=$('#q').value.toLowerCase().trim(),inP=x=>!p||x===p||x.startsWith(p+'/');
-    const fl=(q?folders.filter(f=>f!==p&&inP(f)&&f.split('/').pop().toLowerCase().includes(q)):folders.filter(f=>parentOf(f)===p)).sort((a,b)=>a.localeCompare(b));
-    const nl=(q?notes.filter(n=>inP(n.path||'')&&(n.title+' '+(n.plain||'')).toLowerCase().includes(q)):notes.filter(n=>(n.path||'')===p)).sort((a,b)=>b.updated-a.updated);
+    const fl=(q?folders.filter(f=>f!==p&&inP(f)&&f.split('/').pop().toLowerCase().includes(q)):folders.filter(f=>parentOf(f)===p)).sort(cmpF);
+    const nl=(q?notes.filter(n=>inP(n.path||'')&&(n.title+' '+(n.plain||'')).toLowerCase().includes(q)):notes.filter(n=>(n.path||'')===p)).sort(cmpN);
     $('#grid').innerHTML=(selMode?'':`<button class="tile" data-new><span class="ci plus">+</span><span class="lb">Baru</span></button>`)+
       fl.map(f=>`<button class="tile${selSet.has('d'+f)?' sel':''}" data-dir="${esc(f)}"><span class="ci sq">${FICON}</span><span class="lb">${esc(f.split('/').pop())}</span></button>`).join('')+
       nl.map(n=>`<button class="tile${selSet.has('f'+keyOf(n))?' sel':''}" data-open="${esc(keyOf(n))}"><span class="ci file">${PICON}</span><span class="lb">${esc(n.title)}</span></button>`).join('')+
       (!fl.length&&!nl.length?`<p class="muted" style="grid-column:1/-1;font-size:13px;margin:6px 0 0">${q?'Tidak ada yang cocok.':'Folder ini masih kosong.'}</p>`:'');
   };
   $('#q').oninput=draw;draw();
+  const sb=$('#sortb');sb.textContent='⇅ '+(sortMode==='time'?'Waktu':'A–Z');
+  sb.onclick=()=>sheet(`<b>Urutkan</b><button data-a="name">${sortMode==='name'?'✓ ':''}🔤 Nama (A–Z)</button><button data-a="time">${sortMode==='time'?'✓ ':''}🕒 Waktu (terlama → terbaru)</button><button data-a="x">Batal</button>`,
+    a=>{sortMode=a;try{localStorage.setItem('sort',a)}catch(e){}home(cur.p)});
   if(selMode){
     const items=()=>[...selSet].map(k=>k[0]==='d'?{f:k.slice(1),n:null}:{f:null,n:byKey(k.slice(1))}).filter(it=>it.f!==null||it.n);
     $('#sdel').onclick=()=>delSelected(items());
@@ -341,7 +352,7 @@ async function rmTree(f){
       for(const x of folders.filter(x=>under(x,f)))await idb('readwrite',o=>o.delete('dir:'+x));
     }
   }catch(e){alert('Gagal menghapus folder: '+(e.message||e));throw e}
-  notes=notes.filter(n=>!under(n.path||'',f));folders=folders.filter(x=>!under(x,f));
+  notes=notes.filter(n=>!under(n.path||'',f));folders=folders.filter(x=>!under(x,f));Object.keys(ftime).forEach(k=>{if(under(k,f))delete ftime[k]});
 }
 async function moveTree(f,dst){await copyTree(f,dst);await rmTree(f)}
 async function dupFolder(f){
