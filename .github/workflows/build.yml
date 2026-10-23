@@ -84,6 +84,81 @@ jobs:
           }
           JAVA
 
+      - name: Tema gelap, ikon aplikasi, dan splash
+        run: |
+          R=android/app/src/main/res
+          mkdir -p $R/values $R/drawable $R/mipmap-anydpi-v26
+          cat > $R/values/manuscript_colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="manuscript_bg">#202328</color>
+          </resources>
+          XML
+          cat > $R/drawable/manuscript_icon_fg.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#E8EAED"
+                  android:pathData="M40,26H60L72,38V78A4,4 0 0 1 68,82H40A4,4 0 0 1 36,78V30A4,4 0 0 1 40,26Z" />
+              <path
+                  android:fillColor="#AAB0B9"
+                  android:pathData="M60,26L72,38H64A4,4 0 0 1 60,34Z" />
+              <path
+                  android:strokeColor="#3366CC"
+                  android:strokeWidth="3"
+                  android:strokeLineCap="round"
+                  android:pathData="M44,52H64M44,60H64M44,68H56" />
+          </vector>
+          XML
+          cat > $R/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/manuscript_bg" />
+              <foreground android:drawable="@drawable/manuscript_icon_fg" />
+          </adaptive-icon>
+          XML
+          cat > $R/mipmap-anydpi-v26/ic_launcher_round.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/manuscript_bg" />
+              <foreground android:drawable="@drawable/manuscript_icon_fg" />
+          </adaptive-icon>
+          XML
+          cat > $R/values/styles.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="colorPrimary">@color/manuscript_bg</item>
+                  <item name="colorPrimaryDark">@color/manuscript_bg</item>
+                  <item name="colorAccent">#8AB4F8</item>
+                  <item name="android:windowBackground">@color/manuscript_bg</item>
+                  <item name="android:statusBarColor">@color/manuscript_bg</item>
+                  <item name="android:navigationBarColor">@color/manuscript_bg</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+              </style>
+
+              <style name="AppTheme.NoActionBar" parent="AppTheme">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+                  <item name="android:background">@null</item>
+              </style>
+
+              <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+                  <item name="windowSplashScreenBackground">@color/manuscript_bg</item>
+                  <item name="windowSplashScreenAnimatedIcon">@drawable/manuscript_icon_fg</item>
+                  <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+                  <item name="android:windowBackground">@color/manuscript_bg</item>
+                  <item name="android:statusBarColor">@color/manuscript_bg</item>
+                  <item name="android:navigationBarColor">@color/manuscript_bg</item>
+              </style>
+          </resources>
+          XML
+
       - name: Sinkronkan aplikasi web
         run: npx cap sync android
 
